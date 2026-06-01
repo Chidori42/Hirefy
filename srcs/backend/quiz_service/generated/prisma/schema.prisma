@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum TestType {
+  QUIZ
+  CODE
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+model Mcq {
+  id       String @id @default(uuid()) @db.Char(36)
+  question String @db.Text
+
+  choices Json
+
+  points      Int     @default(1)
+  explanation String? @db.Text
+
+  category   String?     @db.VarChar(100)
+  difficulty Difficulty?
+  tags       Json?
+
+  isPublished Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tests Test[]
+
+  @@index([isPublished])
+  @@index([category])
+  @@index([difficulty])
+}
+
+model CodeChallenge {
+  id          String @id @default(uuid()) @db.Char(36)
+  title       String @db.VarChar(255)
+  description String @db.Text
+
+  starterCode String @db.Text
+  language    String @db.VarChar(50)
+
+  testCases Json
+
+  timeLimit   Int   @default(5000)
+  memoryLimit Int   @default(128000)
+  totalPoints Int   @default(10)
+  hints       Json?
+
+  category   String?     @db.VarChar(100)
+  difficulty Difficulty?
+  tags       Json?
+
+  isPublished Boolean @default(false)
+
+  createdBy String   @db.Char(36)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tests     Test[]
+
+  @@index([isPublished])
+  @@index([category])
+  @@index([difficulty])
+  @@index([language])
+  @@index([createdBy])
+}
+
+model Test {
+  id          String   @id @default(uuid()) @db.Char(36)
+  type        TestType
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+
+  durationMinutes Int
+  passingScore    Int @default(60)
+
+  category   String?     @db.VarChar(100)
+  difficulty Difficulty?
+  tags       Json?
+
+  isPublished Boolean @default(false)
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  mcqs           Mcq[]
+  codeChallenges CodeChallenge[]
+
+  @@index([type])
+  @@index([isPublished])
+  @@index([category])
+  @@index([difficulty])
+}

@@ -1,0 +1,448 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'react-toastify';
+import { chatApi } from '../services/chatApi';
+import { chatSocket } from '../services/chatSocket';
+import { Conversation, Message, ChatState } from '../types/chat';
+
+
+function normalizeMessage(raw: any): Message {
+  const att = raw.attachments?.[0];
+  return {
+    ...raw,
+    messageType: ['image', 'video', 'file'].includes(raw.messageType) ? 'file' : (raw.messageType ?? 'text'),
+    fileUrl: raw.fileUrl ?? att?.filePath ?? undefined,
+    fileName: raw.fileName ?? att?.fileName ?? undefined,
+    fileSize: raw.fileSize ?? att?.fileSize ?? undefined,
+    fileMimetype: raw.fileMimetype ?? att?.mimeType ?? undefined,
+  };
+}
+
+function extractApiErrorMessage(error: any): string {
+  const errors = error?.response?.data?.errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    const firstError = errors[0];
+    return typeof firstError === 'string' ? firstError : 'Request validation failed';
+  }
+
+  const message = error?.response?.data?.message;
+  if (typeof message === 'string' && message.trim()) {
+    return message;
+  }
+
+  return 'Failed to send message';
+}
+
+export function useChat() {
+  const [state, setState] = useState<ChatState>({
+    user: null,
+    conversations: [],
+    currentConversation: null,
+    messages: [],
+    onlineUsers: new Set(),
+    typingUsers: new Map(),
+    isConnected: false,
+  });
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [recruiter, setRecruiter] = useState<any>(null);
+  const [isLoadingRecruiter, setIsLoadingRecruiter] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasConnectedOnce = useRef(false);
+
+  useEffect(() => {
+    const initializeChat = async () => {
+      try {
+        const user = await chatApi.getCurrentUser();
+        setState((prev) => ({ ...prev, user }));
+
+        chatSocket.connect();
+
+        const isCandidate = user.role?.toLowerCase() === 'candidate';
+
+        if (isCandidate) {
+
+          setIsLoadingRecruiter(true);
+          try {
+            const recruiterData = await chatApi.getRecruiter();
+            setRecruiter(recruiterData);
+
+            const conversation = await chatApi.createConversation();
+
+            const rawMessages = await chatApi.getMessages(conversation.id);
+
+            setState((prev) => ({
+              ...prev,
+              conversations: [conversation],
+              currentConversation: conversation,
+              messages: rawMessages.map(normalizeMessage).reverse(),
+            }));
+
+            chatSocket.joinConversation(conversation.id);
+          } catch {
+          } finally {
+            setIsLoadingRecruiter(false);
+          }
+        } else {
+
+          const conversations = await chatApi.getConversations();
+          setState((prev) => ({ ...prev, conversations }));
+
+          const savedId = sessionStorage.getItem('chat_conversationId');
+          if (savedId) {
+            const saved = conversations.find((c) => c.id === savedId);
+            if (saved) {
+              const rawMessages = await chatApi.getMessages(savedId);
+              setState((prev) => ({
+                ...prev,
+                currentConversation: saved,
+                messages: rawMessages.map(normalizeMessage).reverse(),
+              }));
+              chatSocket.joinConversation(savedId);
+              chatSocket.markAsRead(savedId);
+            }
+          }
+        }
+
+        setIsLoading(false);
+      } catch {
+        setIsLoading(false);
+      }
+    };
+
+    initializeChat();
+
+    return () => {
+      chatSocket.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleConnect = () => {
+      hasConnectedOnce.current = true;
+      setState((prev) => ({ ...prev, isConnected: true }));
+
+      chatSocket.requestOnlineUsers();
+    };
+
+    const handleDisconnect = () => {
+      setState((prev) => ({ ...prev, isConnected: false }));
+    };
+
+    const handleError = () => {
+    };
+
+    const handleUserOnline = (data: { userId: string }) => {
+      setState((prev) => {
+        const newOnlineUsers = new Set(prev.onlineUsers);
+        newOnlineUsers.add(data.userId);
+        return { ...prev, onlineUsers: newOnlineUsers };
+      });
+    };
+
+    const handleUserOffline = (data: { userId: string }) => {
+      setState((prev) => {
+        const newOnlineUsers = new Set(prev.onlineUsers);
+        newOnlineUsers.delete(data.userId);
+        return { ...prev, onlineUsers: newOnlineUsers };
+      });
+    };
+
+    const handleOnlineUsers = (data: { userIds: string[] }) => {
+      setState((prev) => ({
+        ...prev,
+        onlineUsers: new Set(data.userIds),
+      }));
+    };
+
+    const handleNewConversation = (data: { conversation: Conversation }) => {
+      setState((prev) => {
+        if (prev.conversations.some((c) => c.id === data.conversation.id)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          conversations: [data.conversation, ...prev.conversations],
+        };
+      });
+    };
+
+    chatSocket.on('onConnect', handleConnect);
+    chatSocket.on('onDisconnect', handleDisconnect);
+    chatSocket.on('onError', handleError);
+    chatSocket.on('onUserOnline', handleUserOnline);
+    chatSocket.on('onUserOffline', handleUserOffline);
+    chatSocket.on('onOnlineUsers', handleOnlineUsers);
+    chatSocket.on('onNewConversation', handleNewConversation);
+
+    if (chatSocket.isConnected()) {
+      hasConnectedOnce.current = true;
+      setState((prev) => ({ ...prev, isConnected: true }));
+      chatSocket.requestOnlineUsers();
+    }
+
+    return () => {
+      chatSocket.off('onConnect', handleConnect);
+      chatSocket.off('onDisconnect', handleDisconnect);
+      chatSocket.off('onError', handleError);
+      chatSocket.off('onUserOnline', handleUserOnline);
+      chatSocket.off('onUserOffline', handleUserOffline);
+      chatSocket.off('onOnlineUsers', handleOnlineUsers);
+      chatSocket.off('onNewConversation', handleNewConversation);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleNewMessage = (data: { message: any; conversationId: string }) => {
+      const { message: raw, conversationId } = data;
+      const message = normalizeMessage(raw);
+
+      setState((prev) => {
+
+        const updatedMessages =
+          prev.currentConversation?.id === conversationId &&
+          !prev.messages.some((m) => m.id === message.id)
+            ? [...prev.messages, message]
+            : prev.messages;
+
+        const updatedConversations = prev.conversations.map((conv) => {
+          if (conv.id !== conversationId) return conv;
+          return {
+            ...conv,
+            lastMessage: message,
+            unreadCount:
+              prev.currentConversation?.id === conversationId
+                ? conv.unreadCount
+                : (conv.unreadCount || 0) + 1,
+          };
+        });
+
+        return { ...prev, messages: updatedMessages, conversations: updatedConversations };
+      });
+
+      setState((prev) => {
+        if (prev.currentConversation?.id === conversationId) {
+          chatSocket.markAsRead(conversationId);
+        }
+        return prev;
+      });
+    };
+
+    const handleTypingUpdate = (data: {
+      conversationId: string;
+      userId: string;
+      userName: string;
+      isTyping: boolean;
+    }) => {
+      setState((prev) => {
+        if (data.conversationId !== prev.currentConversation?.id) return prev;
+        const newTypingUsers = new Map(prev.typingUsers);
+        if (data.isTyping) {
+          newTypingUsers.set(data.userId, { userId: data.userId, userName: data.userName });
+        } else {
+          newTypingUsers.delete(data.userId);
+        }
+        return { ...prev, typingUsers: newTypingUsers };
+      });
+    };
+
+    chatSocket.on('onNewMessage', handleNewMessage);
+    chatSocket.on('onTypingUpdate', handleTypingUpdate);
+
+    return () => {
+      chatSocket.off('onNewMessage', handleNewMessage);
+      chatSocket.off('onTypingUpdate', handleTypingUpdate);
+    };
+  }, [state.currentConversation?.id]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [state.messages]);
+
+  const selectConversation = useCallback(async (conversationId: string) => {
+    try {
+      setIsLoadingMessages(true);
+
+      const conversation = state.conversations.find((c) => c.id === conversationId);
+      if (!conversation) return;
+
+      sessionStorage.setItem('chat_conversationId', conversationId);
+
+      const rawMessages = await chatApi.getMessages(conversationId);
+      const loaded = rawMessages.map(normalizeMessage);
+
+      setState((prev) => {
+        const existing = new Set(loaded.map((m) => m.id));
+        const socketMessages = prev.messages.filter(
+          (m) => m.conversationId === conversationId && !existing.has(m.id)
+        );
+        return {
+          ...prev,
+          currentConversation: conversation,
+          messages: [...loaded, ...socketMessages].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          ),
+          conversations: prev.conversations.map((conv) =>
+            conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv
+          ),
+        };
+      });
+
+      chatSocket.joinConversation(conversationId);
+      chatSocket.markAsRead(conversationId);
+      await chatApi.markConversationAsRead(conversationId);
+
+      const conv = state.conversations.find((c) => c.id === conversationId);
+      if (conv?.participants) {
+        conv.participants.forEach(async (p: any) => {
+          const uid = p.userId ?? p.id;
+          if (!uid || uid === state.user?.id) return;
+          try {
+            const { isOnline } = await chatSocket.getUserStatus(uid);
+            setState((prev) => {
+              const updated = new Set(prev.onlineUsers);
+              if (isOnline) updated.add(uid);
+              else updated.delete(uid);
+              return { ...prev, onlineUsers: updated };
+            });
+          } catch {}
+        });
+      }
+
+      setIsLoadingMessages(false);
+    } catch {
+      setIsLoadingMessages(false);
+    }
+  }, [state.conversations]);
+
+  const [moderationAlert, setModerationAlert] = useState<{ action: string; reason: string[] } | null>(null);
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!state.currentConversation || !content.trim()) return;
+
+      try {
+        const raw = await chatApi.sendMessage(
+          state.currentConversation.id,
+          content.trim()
+        );
+
+        if (raw.blocked && raw.moderation?.action === 'Block') {
+          const blockedMessage: Message = {
+            id: `blocked-${Date.now()}`,
+            content: content.trim(),
+            messageType: 'text',
+            senderId: state.user?.id || '',
+            conversationId: state.currentConversation.id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            moderation: raw.moderation,
+          };
+          setState((prev) => ({
+            ...prev,
+            messages: [...prev.messages, blockedMessage],
+          }));
+          setModerationAlert({ action: 'Block', reason: raw.moderation.reason || [] });
+          setTimeout(() => setModerationAlert(null), 4000);
+          return;
+        }
+
+        const message = normalizeMessage(raw);
+
+        if (raw.moderation?.action === 'Warn') {
+          message.moderation = raw.moderation;
+          setModerationAlert({ action: 'Warn', reason: raw.moderation.reason || [] });
+          setTimeout(() => setModerationAlert(null), 4000);
+        }
+
+        setState((prev) => {
+          if (prev.messages.some((m) => m.id === message.id)) return prev;
+          return {
+            ...prev,
+            messages: [...prev.messages, message],
+            conversations: prev.conversations.map((conv) =>
+              conv.id === message.conversationId
+                ? { ...conv, lastMessage: message }
+                : conv
+            ),
+          };
+        });
+      } catch (error: any) {
+        toast.error(extractApiErrorMessage(error));
+      }
+    },
+    [state.currentConversation, state.user]
+  );
+
+  const sendFile = useCallback(
+    async (file: File) => {
+      if (!state.currentConversation) return;
+
+      if (file.size > 100 * 1024 * 1024) {
+        toast.error('File is too large (max 100 MB)');
+        return;
+      }
+
+      try {
+        const raw = await chatApi.uploadFile(state.currentConversation.id, file);
+        const message = normalizeMessage(raw);
+        setState((prev) => {
+          if (prev.messages.some((m) => m.id === message.id)) return prev;
+          return {
+            ...prev,
+            messages: [...prev.messages, message],
+            conversations: prev.conversations.map((conv) =>
+              conv.id === message.conversationId
+                ? { ...conv, lastMessage: message }
+                : conv
+            ),
+          };
+        });
+      } catch {
+      }
+    },
+    [state.currentConversation]
+  );
+
+  const startTyping = useCallback(() => {
+    if (state.currentConversation) {
+      chatSocket.startTyping(state.currentConversation.id);
+    }
+  }, [state.currentConversation]);
+
+  const stopTyping = useCallback(() => {
+    if (state.currentConversation) {
+      chatSocket.stopTyping(state.currentConversation.id);
+    }
+  }, [state.currentConversation]);
+
+  const getOtherParticipant = useCallback(
+    (conversation: Conversation) => {
+      return conversation.participants.find((p) => p.userId !== state.user?.id);
+    },
+    [state.user]
+  );
+
+  return {
+    user: state.user,
+    conversations: state.conversations,
+    currentConversation: state.currentConversation,
+    messages: state.messages,
+    onlineUsers: state.onlineUsers,
+    typingUsers: state.typingUsers,
+    isConnected: state.isConnected,
+    hasConnectedOnce: hasConnectedOnce.current,
+    isLoading,
+    isLoadingMessages,
+    recruiter,
+    isLoadingRecruiter,
+    messagesEndRef,
+    selectConversation,
+    sendMessage,
+    sendFile,
+    startTyping,
+    stopTyping,
+    getOtherParticipant,
+    moderationAlert,
+  };
+}

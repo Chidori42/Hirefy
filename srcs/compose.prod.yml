@@ -1,0 +1,99 @@
+services:
+  waf:
+    build:
+      context: .
+      dockerfile: ./waf/Dockerfile
+    container_name: waf
+    ports:
+      - "8080:8080"
+    depends_on:
+      - gateway
+    environment:
+      - BACKEND=http://gateway:8081
+    networks:
+      - microservices
+  main_service:
+    build: ./backend/main_service
+    container_name: main-service
+    environment:
+      HOSTNAME: main-service
+      HOST_IP: main-service
+      MARIADB_DATABASE: ${MARIADB_MAIN_DATABASE}
+      MARIADB_USER: ${MARIADB_MAIN_USER}
+      MARIADB_PASSWORD: ${MARIADB_MAIN_PASSWORD}
+      PORT: 3000
+    networks:
+      - microservices
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      main_service_db:
+        condition: service_healthy
+  quiz_service:
+    build: ./backend/quiz_service
+    container_name: quiz_service
+    environment:
+      HOSTNAME: quiz_service
+      HOST_IP: quiz_service
+      MARIADB_DATABASE: ${MARIADB_QUIZ_DATABASE}
+      MARIADB_USER: ${MARIADB_QUIZ_USER}
+      MARIADB_PASSWORD: ${MARIADB_QUIZ_PASSWORD}
+    networks:
+      - microservices
+    env_file:
+      - .env
+    ports:
+      - "3001:3001"
+###
+  ai_service:
+    build: ./backend/ai_services/ai_service
+    container_name: ai_service
+    environment:
+      HOSTNAME: ai_service
+      HOST_IP: ai_service
+    networks:
+      - microservices
+    env_file:
+      - .env
+    ports:
+      - "3002:3002"
+
+  rag_service:
+    build: ./backend/ai_services/rag_service
+    container_name: rag_service
+    environment:
+      HOSTNAME: rag_service
+      HOST_IP: rag_service
+
+    networks:
+      - microservices
+    env_file:
+      - .env
+    ports:
+      - "3003:3003"
+    depends_on:
+      - ollama_service
+  ollama_service:
+    build: ./backend/ai_services/ollama_service
+    container_name: ollama_service
+    environment:
+      HOSTNAME: ollama_service
+      HOST_IP: ollama_service
+    networks:
+      - microservices
+    env_file:
+      - .env
+    ports:
+      - "11434:11434"
+##
+  gateway:
+    build: ./backend/gateway
+    container_name: api-gateway
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    networks:
+      - microservices

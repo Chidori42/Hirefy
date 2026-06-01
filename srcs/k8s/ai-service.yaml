@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service
+  namespace: hirefy
+spec:
+  replicas: 1
+  selector:
+    matchLabels: 
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "ai-service"
+
+        vault.hashicorp.com/agent-inject-secret-config: "secret/data/ai-service/config"
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{- with secret "secret/data/ai-service/config" -}}
+          export AI_MODEL_NAME="{{ .Data.data.AI_MODEL_NAME }}"
+          export AI_API_KEY="{{ .Data.data.AI_API_KEY }}"
+          {{- end }}
+
+        vault.hashicorp.com/agent-inject-secret-jwt: "secret/data/ai-service/jwt"
+        vault.hashicorp.com/agent-inject-template-jwt: |
+          {{- with secret "secret/data/ai-service/jwt" -}}
+          export ACCESS_TOKEN_SECRET="{{ .Data.data.ACCESS_TOKEN_SECRET }}"
+          export SECRET_TOKEN="{{ .Data.data.ACCESS_TOKEN_SECRET }}"
+
+          export REFRESH_TOKEN_SECRET="{{ .Data.data.REFRESH_TOKEN_SECRET }}"
+          {{- end }}
+
+        vault.hashicorp.com/agent-inject-secret-other: "secret/data/ai-service/other"
+        vault.hashicorp.com/agent-inject-template-other: |
+          {{- with secret "secret/data/ai-service/other" -}}
+          export AI_INTERNAL_API_KEY="{{ .Data.data.AI_INTERNAL_API_KEY }}"
+          export INTERNAL_API_KEY="{{ .Data.data.INTERNAL_API_KEY }}"
+          {{- end }}
+
+    spec:
+      serviceAccountName: app-service-account
+
+      containers:
+        - name: ai-service
+          image: ai-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3002
+
+          envFrom:
+            - configMapRef:
+                name: ai-service-config
+
+          command:
+            - /bin/sh
+            - -c
+            - |
+              . /vault/secrets/config
+              . /vault/secrets/jwt
+              . /vault/secrets/other
+              exec ./script.sh
+
+        - name: rag-service
+          image: rag-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3003
+
+          command:
+            - /bin/sh
+            - -c
+            - |
+              . /vault/secrets/config
+              . /vault/secrets/jwt
+              . /vault/secrets/other
+              exec ./script.sh
+
+        - name: ollama-service
+          image: ollama-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-service
+  namespace: hirefy
+spec:
+  selector:
+    app: ai-service
+  ports:
+    - name: ai-http
+      port: 3002
+      targetPort: 3002
+    - name: rag-http
+      port: 3003
+      targetPort: 3003
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-service-config
+  namespace: hirefy
+data:
+  PORT: "3002"  
+  FRONTEND_URL: "https://13.36.189.126"
+  OLLAMA_MODEL: "llama3.2:1b"
+  OLLAMA_SERVER_URL: "http://localhost:11434"
+  OLLAMA_EMBED_MODEL: "mxbai-embed-large"

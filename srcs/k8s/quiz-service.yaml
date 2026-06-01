@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quiz-service
+  namespace: hirefy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quiz-service
+  template:
+    metadata:
+      labels:
+        app: quiz-service
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "quiz-service"
+        vault.hashicorp.com/agent-inject-secret-database: "secret/data/quiz-service/database"
+        vault.hashicorp.com/agent-inject-template-database: |
+          {{- with secret "secret/data/quiz-service/database" -}}
+          export DATABASE_URL="{{ .Data.data.DATABASE_URL }}"
+          {{- end }}
+        vault.hashicorp.com/agent-inject-secret-jwt: "secret/data/quiz-service/jwt"
+        vault.hashicorp.com/agent-inject-template-jwt: |
+          {{- with secret "secret/data/quiz-service/jwt" -}}
+          export ACCESS_TOKEN_SECRET="{{ .Data.data.ACCESS_TOKEN_SECRET }}"
+          export REFRESH_TOKEN_SECRET="{{ .Data.data.REFRESH_TOKEN_SECRET }}"
+          {{- end }}
+        vault.hashicorp.com/agent-inject-secret-other: "secret/data/quiz-service/other"
+        vault.hashicorp.com/agent-inject-template-other: |
+          {{- with secret "secret/data/quiz-service/other" -}}
+          export QUIZ_PUBLIC_API_KEY="{{ .Data.data.QUIZ_PUBLIC_API_KEY }}"
+          export INTERNAL_API_KEY="{{ .Data.data.INTERNAL_API_KEY }}"
+          {{- end }}
+    spec:
+      serviceAccountName: app-service-account
+      containers:
+        - name: quiz-service
+          image: quiz-service:dev
+          envFrom:
+            - configMapRef:
+                 name: quiz-service-config
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "=== [1] Listing vault secrets ==="
+              ls -la /vault/secrets/
+
+              echo "=== [2] Content of /vault/secrets/database ==="
+              cat /vault/secrets/database
+
+              echo "=== [3] Sourcing vault secrets ==="
+              . /vault/secrets/database
+              . /vault/secrets/jwt
+              . /vault/secrets/other
+
+              echo "=== [4] Checking env vars after sourcing ==="
+              echo "DATABASE_URL=$DATABASE_URL"
+              echo "ACCESS_TOKEN_SECRET=$ACCESS_TOKEN_SECRET"
+              echo "QUIZ_PUBLIC_API_KEY=$QUIZ_PUBLIC_API_KEY"
+
+              echo "=== [5] Waiting for DB ==="
+              until nc -z quiz-service-db 3306; do
+                echo "Waiting for DB..."
+                sleep 2
+              done
+              echo "DB is ready!"
+
+              echo "=== [6] Running prisma generate ==="
+              npx prisma generate
+
+              echo "=== [7] Running prisma db push ==="
+              npx prisma db push 
+
+              echo "=== [8] Starting app ==="
+              exec node /app/server.js
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quiz-service
+  namespace: hirefy
+spec:
+  selector:
+    app: quiz-service
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quiz-service-config
+  namespace: hirefy
+data:
+  PORT: "3001"
+  NODE_ENV: "production"
+  APP_NAME: "quiz-service"
+  HOST: "quiz-service"
+  BCRYPT_ROUNDS: "10"
+  CALLBACK_URL: "https://13.36.189.126/api/main/auth/google/callback"
+  ACCESS_TOKEN_EXPIRY: "1d"
+  REFRESH_TOKEN_EXPIRY: "7d"
+  FRONTEND_URL: "https://13.36.189.126"
+  BACKEND_URL: "https://13.36.189.126/api/main"

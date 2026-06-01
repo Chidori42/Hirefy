@@ -1,0 +1,60 @@
+services:
+  main_service_db:
+    image: mariadb
+    restart: always
+    container_name: main_service_db
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_MAIN_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_MAIN_DATABASE}
+      MARIADB_USER: ${MARIADB_MAIN_USER}
+      MARIADB_PASSWORD: ${MARIADB_MAIN_PASSWORD}
+    volumes:
+      - main_service_db:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - microservices
+
+  quiz_service_db:
+    image: mariadb
+    restart: always
+    container_name: quiz_service_db
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_QUIZ_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_QUIZ_DATABASE}
+      MARIADB_USER: ${MARIADB_QUIZ_USER}
+      MARIADB_PASSWORD: ${MARIADB_QUIZ_PASSWORD}
+    volumes:
+      - quiz_service_db:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - microservices
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - "8888:8080"
+    networks:
+      - microservices
+
+volumes:
+  main_service_db:
+  quiz_service_db:
+
+networks:
+  microservices:
+    driver: bridge
