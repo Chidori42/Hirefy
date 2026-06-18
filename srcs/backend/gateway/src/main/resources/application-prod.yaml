@@ -1,5 +1,4 @@
 
-
 spring:
   cloud:
     gateway:
@@ -17,6 +16,6 @@ spring:
           predicates:
             - Path=/api/ai/**
         - id: ai-rag-service
-          uri: http://ai-service:3003
+          uri: http://rag-service:3003
           predicates:
             - Path=/api/rag/**

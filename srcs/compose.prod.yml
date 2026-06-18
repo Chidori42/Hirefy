@@ -7,8 +7,10 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - gateway
-      - frontend
+      gateway:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     environment:
       - BACKEND=http://gateway:8081
       - FRONTEND=http://frontend:80
@@ -24,7 +26,7 @@ services:
     depends_on:
       - gateway
 
-  main_service:
+  main-service:
     build: ./backend/main_service
     container_name: main-service
     environment:
@@ -33,13 +35,13 @@ services:
       MARIADB_DATABASE: ${MARIADB_MAIN_DATABASE}
       MARIADB_USER: ${MARIADB_MAIN_USER}
       MARIADB_PASSWORD: ${MARIADB_MAIN_PASSWORD}
-      DATABASE_URL: mysql://${MARIADB_MAIN_USER}:${MARIADB_MAIN_PASSWORD}@main_service_db:3306/${MARIADB_MAIN_DATABASE}
+      DATABASE_URL: mysql://${MARIADB_MAIN_USER}:${MARIADB_MAIN_PASSWORD}@main-service-db:3306/${MARIADB_MAIN_DATABASE}
       HOST: 0.0.0.0
       FRONTEND_URL: http://localhost:8080
       BACKEND_URL: http://localhost:8080/api/main
-      QUIZ_SERVICE_URL: http://quiz_service:3001/
-      AI_SERVICE_URL: http://ai_service:3002/
-      RAG_SERVICE_URL: http://rag_service:3003/
+      QUIZ_SERVICE_URL: http://quiz-service:3001/
+      AI_SERVICE_URL: http://ai-service:3002/
+      RAG_SERVICE_URL: http://rag-service:3003/
       CALLBACK_URL: http://localhost:8080/api/main/auth/google/callback
       PORT: 3000
     networks:
@@ -49,18 +51,18 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      main_service_db:
+      main-service-db:
         condition: service_healthy
-  quiz_service:
+  quiz-service:
     build: ./backend/quiz_service
-    container_name: quiz_service
+    container_name: quiz-service
     environment:
-      HOSTNAME: quiz_service
-      HOST_IP: quiz_service
+      HOSTNAME: quiz-service
+      HOST_IP: quiz-service
       MARIADB_DATABASE: ${MARIADB_QUIZ_DATABASE}
       MARIADB_USER: ${MARIADB_QUIZ_USER}
       MARIADB_PASSWORD: ${MARIADB_QUIZ_PASSWORD}
-      DATABASE_URL: mysql://${MARIADB_QUIZ_USER}:${MARIADB_QUIZ_PASSWORD}@quiz_service_db:3306/${MARIADB_QUIZ_DATABASE}
+      DATABASE_URL: mysql://${MARIADB_QUIZ_USER}:${MARIADB_QUIZ_PASSWORD}@quiz-service-db:3306/${MARIADB_QUIZ_DATABASE}
       HOST: 0.0.0.0
       FRONTEND_URL: http://localhost:8080
     networks:
@@ -70,15 +72,15 @@ services:
     ports:
       - "3001:3001"
     depends_on:
-      quiz_service_db:
+      quiz-service-db:
         condition: service_healthy
 ###
-  ai_service:
+  ai-service:
     build: ./backend/ai_services/ai_service
-    container_name: ai_service
+    container_name: ai-service
     environment:
-      HOSTNAME: ai_service
-      HOST_IP: ai_service
+      HOSTNAME: ai-service
+      HOST_IP: ai-service
       FRONTEND_URL: http://localhost:8080
     networks:
       - microservices
@@ -87,14 +89,14 @@ services:
     ports:
       - "3002:3002"
 
-  rag_service:
+  rag-service:
     build: ./backend/ai_services/rag_service
-    container_name: rag_service
+    container_name: rag-service
     environment:
-      HOSTNAME: rag_service
-      HOST_IP: rag_service
+      HOSTNAME: rag-service
+      HOST_IP: rag-service
       FRONTEND_URL: http://localhost:8080
-      OLLAMA_HOST: http://ollama_service:11434
+      OLLAMA_SERVER_URL: http://ollama-service:11434
 
     networks:
       - microservices
@@ -103,19 +105,26 @@ services:
     ports:
       - "3003:3003"
     depends_on:
-      - ollama_service
-  ollama_service:
+      ollama-service:
+        condition: service_healthy
+  ollama-service:
     build: ./backend/ai_services/ollama_service
-    container_name: ollama_service
+    container_name: ollama-service
     environment:
-      HOSTNAME: ollama_service
-      HOST_IP: ollama_service
+      HOSTNAME: ollama-service
+      HOST_IP: ollama-service
     networks:
       - microservices
     env_file:
       - .env
     ports:
       - "11434:11434"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 ##
   gateway:
     build: ./backend/gateway
@@ -126,3 +135,9 @@ services:
       - SPRING_PROFILES_ACTIVE=prod
     networks:
       - microservices
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8081"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s

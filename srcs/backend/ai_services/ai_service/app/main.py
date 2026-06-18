@@ -1,39 +1,42 @@
+import logging
 import os
-
-from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from routers import img_classf_router, speech_recognition_router, text_moderation_router
 from fastapi.middleware.cors import CORSMiddleware
-from routers import (
-    img_classf_router,
-    speech_recognition_router,
-    text_moderation_router,
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+logger = logging.getLogger("ai_service")
 
-load_dotenv()
+# Minimal config handling to avoid dependency issues
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+APP_NAME = os.getenv("APP_NAME", "AI Service")
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(f"Starting {APP_NAME}...")
+    yield
+    logger.info(f"Shutting down {APP_NAME}...")
 
-origins = [
-    os.getenv("FRONTEND_URL", "https://13.36.189.126"),
-]
+app = FastAPI(title=APP_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+from routers import img_classf_router, speech_recognition_router, text_moderation_router
 
 @app.get("/api/ai/health")
-def healtch_check():
-    return {"status": "ok"}
-
+async def health_check():
+    return {"status": "ok", "service": APP_NAME}
 
 app.include_router(img_classf_router.router)
-
 app.include_router(text_moderation_router.router)
-
 app.include_router(speech_recognition_router.router)

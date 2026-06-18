@@ -10,7 +10,7 @@ RUN npm install
 RUN npm install -g ts-node typescript
 # Copy source code
 COPY . .
-RUN npx prisma generate
+RUN SKIP_ENV_VALIDATION=true npx prisma generate
 RUN npm install -g nodemon
 # Expose port
 EXPOSE 3000

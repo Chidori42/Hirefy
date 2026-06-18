@@ -11,7 +11,7 @@ RUN npm install
 
 # Copy source code
 COPY . .
-RUN npx prisma generate
+RUN SKIP_ENV_VALIDATION=true npx prisma generate
 
 # Expose port
 EXPOSE 3001

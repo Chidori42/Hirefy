@@ -7,7 +7,7 @@ const envPath = process.env.NODE_ENV === 'production' ? "../../.env" : "../../.e
 
 dotenv.config({
   path: path.resolve(import.meta.dirname,envPath),
-  override: true
+  override: false
 });
 
 const vaultFiles = [
@@ -64,8 +64,12 @@ const envSchema = z.object({
 const envVars = envSchema.safeParse(process.env);
 
 if (!envVars.success) {
-    console.error("Invalid environment variables:", envVars.error.format());
-    process.exit(1);
+    if (process.env.SKIP_ENV_VALIDATION === 'true' || process.argv.includes('generate')) {
+        console.warn("Invalid environment variables (skipped during build):", envVars.error.format());
+    } else {
+        console.error("Invalid environment variables:", envVars.error.format());
+        process.exit(1);
+    }
 }
 
-export default envVars.data;
+export default envVars.data || {};
