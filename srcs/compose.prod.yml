@@ -8,10 +8,22 @@ services:
       - "8080:8080"
     depends_on:
       - gateway
+      - frontend
     environment:
       - BACKEND=http://gateway:8081
+      - FRONTEND=http://frontend:80
     networks:
       - microservices
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    networks:
+      - microservices
+    depends_on:
+      - gateway
+
   main_service:
     build: ./backend/main_service
     container_name: main-service
@@ -21,6 +33,14 @@ services:
       MARIADB_DATABASE: ${MARIADB_MAIN_DATABASE}
       MARIADB_USER: ${MARIADB_MAIN_USER}
       MARIADB_PASSWORD: ${MARIADB_MAIN_PASSWORD}
+      DATABASE_URL: mysql://${MARIADB_MAIN_USER}:${MARIADB_MAIN_PASSWORD}@main_service_db:3306/${MARIADB_MAIN_DATABASE}
+      HOST: 0.0.0.0
+      FRONTEND_URL: http://localhost:8080
+      BACKEND_URL: http://localhost:8080/api/main
+      QUIZ_SERVICE_URL: http://quiz_service:3001/
+      AI_SERVICE_URL: http://ai_service:3002/
+      RAG_SERVICE_URL: http://rag_service:3003/
+      CALLBACK_URL: http://localhost:8080/api/main/auth/google/callback
       PORT: 3000
     networks:
       - microservices
@@ -40,12 +60,18 @@ services:
       MARIADB_DATABASE: ${MARIADB_QUIZ_DATABASE}
       MARIADB_USER: ${MARIADB_QUIZ_USER}
       MARIADB_PASSWORD: ${MARIADB_QUIZ_PASSWORD}
+      DATABASE_URL: mysql://${MARIADB_QUIZ_USER}:${MARIADB_QUIZ_PASSWORD}@quiz_service_db:3306/${MARIADB_QUIZ_DATABASE}
+      HOST: 0.0.0.0
+      FRONTEND_URL: http://localhost:8080
     networks:
       - microservices
     env_file:
       - .env
     ports:
       - "3001:3001"
+    depends_on:
+      quiz_service_db:
+        condition: service_healthy
 ###
   ai_service:
     build: ./backend/ai_services/ai_service
@@ -53,6 +79,7 @@ services:
     environment:
       HOSTNAME: ai_service
       HOST_IP: ai_service
+      FRONTEND_URL: http://localhost:8080
     networks:
       - microservices
     env_file:
@@ -66,6 +93,8 @@ services:
     environment:
       HOSTNAME: rag_service
       HOST_IP: rag_service
+      FRONTEND_URL: http://localhost:8080
+      OLLAMA_HOST: http://ollama_service:11434
 
     networks:
       - microservices

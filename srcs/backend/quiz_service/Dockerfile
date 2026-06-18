@@ -11,9 +11,10 @@ RUN npm install
 
 # Copy source code
 COPY . .
+RUN npx prisma generate
 
 # Expose port
 EXPOSE 3001
 RUN npm install -g nodemon
 # Start the application
-CMD ["npm", "run", "dev"]
+CMD ["sh", "-c", "npx prisma db push && npm run dev"]

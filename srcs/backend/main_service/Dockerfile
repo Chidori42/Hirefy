@@ -10,9 +10,10 @@ RUN npm install
 RUN npm install -g ts-node typescript
 # Copy source code
 COPY . .
+RUN npx prisma generate
 RUN npm install -g nodemon
 # Expose port
 EXPOSE 3000
 # Start the application
 # Instead of RUN npm run seed at build time...
-CMD ["sh", "-c", " npm run seed && npm run dev"]
+CMD ["sh", "-c", "npx prisma db push && npm run seed && npm run dev"]

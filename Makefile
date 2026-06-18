@@ -8,8 +8,9 @@ PROD_COMPOSE := docker compose -f srcs/compose.yml -f srcs/compose.prod.yml
 
 # ---------- Docker Compose (prod) ----------
 up: build
+	[ -f srcs/.env ] || cp srcs/.env.example srcs/.env
 	$(PROD_COMPOSE) build --no-cache
-	$(PROD_COMPOSE) up
+	$(PROD_COMPOSE) up -d
 build:
 	cd srcs/backend/gateway && ./gradlew clean bootJar
 	true
@@ -76,7 +77,7 @@ kube-build:
 	--build-arg VITE_QUIZ_API_URL=/api/quiz \
 	--build-arg VITE_AI_API_URL=/api/ai \
 	--build-arg VITE_RAG_API_URL=/api/rag \
-	/home/ec2-user/ft_transcendance/srcs/frontend
+	$(ROOT)srcs/frontend
 
 
 kube-load: kube-build
