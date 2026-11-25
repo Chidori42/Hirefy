@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: main-service
+  namespace: hirefy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: main-service
+  template:
+    metadata:
+      labels:
+        app: main-service
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "main-service"
+        vault.hashicorp.com/agent-inject-secret-database: "secret/data/main-service/database"
+        vault.hashicorp.com/agent-inject-template-database: |
+          {{- with secret "secret/data/main-service/database" -}}
+          export DATABASE_URL="{{ .Data.data.DATABASE_URL }}"
+          {{- end }}
+        vault.hashicorp.com/agent-inject-secret-jwt: "secret/data/main-service/jwt"
+        vault.hashicorp.com/agent-inject-template-jwt: |
+          {{- with secret "secret/data/main-service/jwt" -}}
+          export ACCESS_TOKEN_SECRET="{{ .Data.data.ACCESS_TOKEN_SECRET }}"
+          export REFRESH_TOKEN_SECRET="{{ .Data.data.REFRESH_TOKEN_SECRET }}"
+          export TEMP_TOKEN_SECRET="{{ .Data.data.TEMP_TOKEN_SECRET }}"
+          export VERIFY_TOKEN_SECRET="{{ .Data.data.VERIFY_TOKEN_SECRET }}"
+
+          {{- end }}
+        vault.hashicorp.com/agent-inject-secret-oauth: "secret/data/main-service/oauth"
+        vault.hashicorp.com/agent-inject-template-oauth: |
+          {{- with secret "secret/data/main-service/oauth" -}}
+          export GOOGLE_CLIENT_ID="{{ .Data.data.GOOGLE_CLIENT_ID }}"
+          export GOOGLE_CLIENT_SECRET="{{ .Data.data.GOOGLE_CLIENT_SECRET }}"
+          {{- end }}
+        vault.hashicorp.com/agent-inject-secret-other: "secret/data/main-service/other"
+        vault.hashicorp.com/agent-inject-template-other: |
+          {{- with secret "secret/data/main-service/other" -}}
+          export RECRUITER_PASS="{{ .Data.data.RECRUITER_PASS }}"
+          export AI_INTERNAL_API_KEY="{{ .Data.data.AI_INTERNAL_API_KEY }}"
+          export USER_EMAIL="{{ .Data.data.USER_EMAIL }}"
+
+          export USER_PASSWORD="{{ .Data.data.USER_PASSWORD }}"
+          export QUIZ_PUBLIC_API_KEY="{{ .Data.data.QUIZ_PUBLIC_API_KEY }}"
+          export INTERNAL_API_KEY="{{ .Data.data.INTERNAL_API_KEY }}"
+
+          {{- end }}
+        # vault.hashicorp.com/agent-inject-command-database: "/bin/sh -c 'source /vault/secrets/database && source /vault/secrets/config && source /vault/secrets/jwt && source /vault/secrets/oauth && exec node /app/server.js'"
+    spec:
+      serviceAccountName: app-service-account
+      containers:
+        - name: main-service
+          image: main-service:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: main-service-config
+          command:
+          - /bin/sh
+          - -c
+          - |
+            . /vault/secrets/database
+            . /vault/secrets/jwt
+            . /vault/secrets/oauth
+            . /vault/secrets/other 
+            npx prisma generate
+            echo "=== [5] Waiting for DB ==="
+            until nc -z main-service-db 3306; do
+              echo "Waiting for DB..."
+              sleep 2
+            done
+            echo "DB is ready!"
+            npx prisma db push
+            npm run seed
+            exec node /app/server.js
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+ 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: main-service
+  namespace: hirefy
+spec:
+  selector:
+    app: main-service
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: main-service-config
+  namespace: hirefy
+data:
+  PORT: "3000"
+  NODE_ENV: "production"
+  HOSTNAME: "main-service"
+  HOST_IP: "main-service"
+  HOST: "13.36.189.126"
+  BCRYPT_ROUNDS: "10"
+  CALLBACK_URL: "/api/main/auth/google/callback"
+  ACCESS_TOKEN_EXPIRY: "1d"
+  REFRESH_TOKEN_EXPIRY: "7d"
+  VERIFY_SECRET_EXPIRY: "7d"
+  FRONTEND_URL: "https://13.36.189.126"
+  BACKEND_URL: "https://13.36.189.126"
+  QUIZ_SERVICE_URL: "http://quiz-service:3001/"
+  VERIFY_TOKEN_EXPIRY: "7d"
+  TEMP_TOKEN_EXPIRY: "15m"
+  AI_SERVICE_URL: "http://ai-service:3002/"

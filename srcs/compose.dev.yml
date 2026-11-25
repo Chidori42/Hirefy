@@ -1,0 +1,8 @@
+services:
+  main-service-db:
+    ports:
+      - "3306:3306"
+
+  quiz-service-db:
+    ports:
+      - "3307:3306"

@@ -1,0 +1,451 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Company {
+  id          String   @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  name        String   @db.VarChar(255)
+  subdomain   String   @unique @db.VarChar(100)
+  email       String   @unique @db.VarChar(255)
+  logo        String?  @db.Text
+  website     String?  @db.VarChar(255)
+  industry    String?  @db.VarChar(100)
+  size        String?  @db.VarChar(50)
+  plan        Plan     @default(FREE)
+  status      CompanyStatus @default(ACTIVE)
+  trialEndsAt DateTime? @db.Timestamp(0)
+  createdAt   DateTime @default(now()) @db.Timestamp(0)
+  updatedAt   DateTime @updatedAt @db.Timestamp(0)
+
+  users       User[]
+  jobs        Job[]
+  settings    CompanySettings?
+  conversations Conversation[]
+  notifications Notification[]
+  interviews  Interview[]
+  offers      Offer[]
+  applications Application[]
+  
+  @@index([subdomain])
+  @@index([status])
+}
+
+model CompanySettings {
+  id          String   @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  companyId   String   @unique @db.Char(36)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  // Branding
+  primaryColor    String? @default("#2563EB") @db.VarChar(7)
+  secondaryColor  String? @default("#7C3AED") @db.VarChar(7)
+  logoUrl         String? @db.Text
+  
+  // Features
+  allowPublicApplications Boolean @default(true)
+  requirePhoneNumber      Boolean @default(false)
+  enableInterviews        Boolean @default(true)
+  enableAssessments       Boolean @default(true)
+  enableChat              Boolean @default(true)
+  
+  // Notifications
+  emailNotifications Boolean @default(true)
+  interviewReminders Boolean @default(true)
+  
+  // Localization
+  timezone    String @default("UTC") @db.VarChar(50)
+  dateFormat  String @default("MM/DD/YYYY") @db.VarChar(20)
+  currency    String @default("USD") @db.VarChar(3)
+  
+  createdAt   DateTime @default(now()) @db.Timestamp(0)
+  updatedAt   DateTime @updatedAt @db.Timestamp(0)
+}
+
+model JobPhase {
+  id              String    @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  jobId           String    @db.Char(36)
+  phaseType       PhaseType
+  name            String    @db.VarChar(100)
+  description     String?   @db.Text
+  orderIndex      Int
+  isRequired      Boolean?  @default(true)
+  durationMinutes Int?
+  createdAt       DateTime? @default(now()) @db.Timestamp(0)
+
+  applicationPhases ApplicationPhase[]
+  applications      Application[]
+  job               Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  testId            String?            @db.Char(36)
+  interviewId       String?            @db.Char(36)
+
+  @@unique([jobId, orderIndex])
+}
+
+model Job {
+  id             String     @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  title          String     @db.VarChar(255)
+  department     String?    @db.VarChar(100)
+  description    String?    @db.Text
+  requirements   String?    @db.LongText
+  location       String?    @db.VarChar(255)
+  skills         String?    @db.Text
+  isRemote       Boolean?   @default(false)
+  employmentType String?    @db.VarChar(50)
+  salaryMin      Int?
+  salaryMax      Int?
+  salaryCurrency String?    @default("USD") @db.VarChar(3)
+  status         JobStatus? @default(open)
+  createdAt      DateTime?  @default(now()) @db.Timestamp(0)
+  updatedAt      DateTime?  @default(now()) @db.Timestamp(0)
+  closedAt       DateTime?  @db.Timestamp(0)
+
+  // Multi-tenant fields
+  companyId      String     @db.Char(36)
+  company        Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  applications Application[]
+  jobPhases    JobPhase[]
+  user         User?         @relation(fields: [userId], references: [id])
+  userId       String?       @db.Char(36)
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([status])
+}
+
+model ApplicationPhase {
+  id            String                  @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  applicationId String                  @db.Char(36)
+  phaseId       String                  @db.Char(36)
+  status        ApplicationPhaseStatus? @default(pending)
+  startedAt     DateTime?               @db.Timestamp(0)
+  completedAt   DateTime?               @db.Timestamp(0)
+  notes         String?                 @db.Text
+  score         Int?                    @default(0)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  jobPhase    JobPhase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  interviews  Interview[]
+
+  @@unique([applicationId, phaseId])
+  @@index([applicationId, status])
+  @@index([phaseId])
+}
+
+model Application {
+  id             String             @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  jobId          String             @db.Char(36)
+  candidateId    String             @db.Char(36)
+  status         ApplicationStatus? @default(pending)
+  currentPhaseId String?            @db.Char(36)
+  appliedAt      DateTime?          @default(now()) @db.Timestamp(0)
+  updatedAt      DateTime?          @default(now()) @db.Timestamp(0)
+
+  // Multi-tenant field
+  companyId      String             @db.Char(36)
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  applicationPhases ApplicationPhase[]
+  job               Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate         User               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  offer             Offer?
+  jobPhase          JobPhase?          @relation(fields: [jobPhaseId], references: [id])
+  jobPhaseId        String?            @db.Char(36)
+
+  @@unique([jobId, candidateId])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([currentPhaseId])
+  @@index([candidateId])
+  @@index([jobId])
+  @@index([status])
+}
+
+model Profile {
+  userId          String  @id @db.Char(36)
+  resumeUrl       String? @db.Text
+  linkedinUrl     String? @db.VarChar(255)
+  portfolioUrl    String? @db.VarChar(255)
+  currentCompany  String? @db.VarChar(255)
+  currentTitle    String? @db.VarChar(255)
+  phone           String? @db.VarChar(255)
+  yearsExperience Int?
+  skills          String? @db.LongText
+  availableFrom   String? @db.VarChar(255)
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model InterviewParticipant {
+  id          String    @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  interviewId String    @db.Char(36)
+  userId      String    @db.Char(36)
+  role        String?   @db.VarChar(50)
+  joinedAt    DateTime? @db.Timestamp(0)
+  leftAt      DateTime? @db.Timestamp(0)
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, userId])
+  @@index([userId])
+  @@index([interviewId])
+}
+
+model Interview {
+  id                  String           @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  applicationPhaseId  String           @db.Char(36)
+  scheduledAt         DateTime         @db.Timestamp(0)
+  durationMinutes     Int?             @default(60)
+  interviewMode       InterviewMode
+  location            String?          @db.VarChar(255)
+  whiteboardSessionId String?          @db.Char(36)
+  status              InterviewStatus? @default(scheduled)
+  startedAt           DateTime?        @db.Timestamp(0)
+  endedAt             DateTime?        @db.Timestamp(0)
+  createdAt           DateTime?        @default(now()) @db.Timestamp(0)
+  hasWhiteboard       Boolean?         @default(false)
+
+  // Multi-tenant field
+  companyId           String           @db.Char(36)
+  company             Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  participants     InterviewParticipant[]
+  applicationPhase ApplicationPhase       @relation(fields: [applicationPhaseId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([applicationPhaseId])
+  @@index([scheduledAt, status])
+  @@index([status])
+}
+
+model Notification {
+  id            String           @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  userId        String           @db.Char(36)
+  type          NotificationType
+  title         String           @db.VarChar(255)
+  message       String?          @db.Text
+  referenceType String?          @db.VarChar(50)
+  referenceId   String?          @db.Char(36)
+  isRead        Boolean?         @default(false)
+  createdAt     DateTime?        @default(now()) @db.Timestamp(0)
+
+  companyId     String?          @db.Char(36)
+  company       Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([userId, isRead])
+}
+
+model Offer {
+  id              String       @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  applicationId   String       @unique @db.Char(36)
+  title           String       @db.VarChar(255)
+  department      String?      @db.VarChar(100)
+  salary          Int
+  salaryCurrency  String?      @default("USD") @db.VarChar(3)
+  bonus           Int?
+  equity          String?      @db.VarChar(100)
+  startDate       DateTime?    @db.Date
+  benefits        String?      @db.Text
+  additionalTerms String?      @db.Text
+  status          OfferStatus? @default(pending)
+  sentAt          DateTime?    @default(now()) @db.Timestamp(0)
+  expiresAt       DateTime?    @db.Timestamp(0)
+  respondedAt     DateTime?    @db.Timestamp(0)
+  responseNotes   String?      @db.Text
+
+  companyId       String       @db.Char(36)
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  application     Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+model User {
+  id                       String                    @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  email                    String                    @unique @db.VarChar(255)
+  passwordHash             String                    @db.VarChar(255)
+  role                     UserRole                  @default(candidate)
+  firstName                String                    @db.VarChar(100)
+  lastName                 String                    @db.VarChar(100)
+  phone                    String?                   @db.VarChar(20)
+  avatarUrl                String?                   @db.Text
+  createdAt                DateTime?                 @default(now()) @db.Timestamp(0)
+  updatedAt                DateTime?                 @default(now()) @db.Timestamp(0)
+  refreshToken             String?                   @db.Text
+  isVerified               Boolean?                  @default(false)
+  twoFAEnabled             Boolean                   @default(false)
+  firstLogin               Boolean                   @default(true)
+  twoFASecret              String?
+  twoFATempSecret          String?
+  
+  // Multi-tenant fields
+  companyId                String?                   @db.Char(36)
+  company                  Company?                  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  // Relations
+  applications             Application[]
+  profile                  Profile?
+  interviewParticipants    InterviewParticipant[]
+  jobs                     Job[]
+  notifications            Notification[]
+  conversationParticipants ConversationParticipant[]
+  messagesSent             Message[]
+
+  @@index([companyId])
+  @@index([email])
+}
+
+model Conversation {
+  id        String   @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  companyId String?  @db.Char(36)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamp(0)
+  updatedAt DateTime @default(now()) @db.Timestamp(0)
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([companyId])
+  @@index([updatedAt])
+}
+
+model ConversationParticipant {
+  id             String    @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  conversationId String    @db.Char(36)
+  userId         String    @db.Char(36)
+  joinedAt       DateTime  @default(now()) @db.Timestamp(0)
+  lastReadAt     DateTime? @db.Timestamp(0)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([conversationId])
+}
+
+model Message {
+  id             String      @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  conversationId String      @db.Char(36)
+  senderId       String      @db.Char(36)
+  content        String      @db.Text
+  messageType    MessageType @default(text)
+  isDeleted      Boolean     @default(false)
+  createdAt      DateTime    @default(now()) @db.Timestamp(0)
+  updatedAt      DateTime    @default(now()) @db.Timestamp(0)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model Attachment {
+  id        String   @id @default(dbgenerated("(uuid())")) @db.Char(36)
+  messageId String   @db.Char(36)
+  fileName  String   @db.VarChar(255)
+  filePath  String   @db.VarChar(500)
+  fileSize  Int
+  mimeType  String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.Timestamp(0)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  EXPIRED
+}
+
+enum InterviewMode {
+  online
+  onsite
+}
+
+enum PhaseType {
+  test
+  interview
+}
+
+enum ApplicationPhaseStatus {
+  pending
+  inProgress
+  completed
+  skipped
+  failed
+}
+
+enum NotificationType {
+  applicationReceived
+  phaseStarted
+  testCompleted
+  interviewScheduled
+  accepted
+  rejected
+  offerSent
+  offerResponse
+  newMessage
+}
+
+enum UserRole {
+  candidate
+  recruiter
+  admin
+}
+
+enum ApplicationStatus {
+  pending
+  inProgress
+  accepted
+  rejected
+  withdrawn
+}
+
+enum InterviewStatus {
+  scheduled
+  inProgress
+  completed
+  cancelled
+  noShow
+}
+
+enum JobStatus {
+  open
+  closed
+  archived
+}
+
+enum OfferStatus {
+  pending
+  accepted
+  declined
+  expired
+}
+
+enum MessageType {
+  text
+  image
+  video
+  file
+  system
+}

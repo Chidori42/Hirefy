@@ -1,0 +1,56 @@
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import {HttpException} from '../utils/httpExceptions.js';
+
+fs.mkdirSync(`${import.meta.dirname}/../../api/main/uploads/avatars`, {recursive: true});
+fs.mkdirSync(`${import.meta.dirname}/../../api/main/uploads/resumes`, {recursive: true});
+
+const diskStorage =  multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadPath = file.fieldname === 'avatar' ?
+        'api/main/uploads/avatars':
+        'api/main/uploads/resumes';
+        cb(null, uploadPath);
+    },
+    filename:(req, file, cb) => {
+        const filename = req.params?.id || req.body.userId;
+        const ext = path.extname(file.originalname);
+        cb(null,`${filename}${ext}`)
+    }
+})
+
+const fileFilter = (req, file, cb) => {
+    if (file.fieldname === "avatar"){
+        const allowedMimes = ["image/jpeg", "image/png" , "image/jpg", "image/webp"];
+        if (allowedMimes.includes(file.mimetype))
+            cb (null, true)
+        else
+            cb(new HttpException(400, "allowed formats are : .jpeg .png .jpg .webp"), false)
+    }
+    else if( file.fieldname === "resume"){
+         if (file.mimetype === "application/pdf")
+            cb (null, true);
+        else
+            cb (new HttpException(400, "file format should be pdf"));
+    }
+}
+
+export const upload =  multer({
+    storage: diskStorage,
+    fileFilter: fileFilter,
+    limits  :{
+        fileSize : 10 * 1024 * 1024,
+        files: 1
+    }
+});
+
+export const uploadProfile = multer({
+    
+    storage: diskStorage,
+    fileFilter: fileFilter,
+    limits : {
+        fileSize : 10 * 1024 * 1024,
+        files: 2
+    } 
+})
